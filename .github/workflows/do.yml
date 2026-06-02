@@ -1,0 +1,91 @@
+name: Upload Android SDK & NDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: ndk-r27d
+            type: ndk
+            url: https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+
+          - branch: ndk-r29
+            type: ndk
+            url: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+
+          - branch: sdk-24.0.4
+            type: sdk
+            build_tools: "24.0.4"
+
+          - branch: sdk-35.0.2
+            type: sdk
+            build_tools: "35.0.2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip wget git
+
+      - name: Download NDK
+        if: matrix.type == 'ndk'
+        run: |
+          mkdir package
+          wget -O package/archive.zip "${{ matrix.url }}"
+          cd package
+          unzip -q archive.zip
+          rm archive.zip
+
+      - name: Download SDK Build Tools
+        if: matrix.type == 'sdk'
+        run: |
+          mkdir sdk
+          cd sdk
+
+          wget -O cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+
+          mkdir -p cmdline-tools/latest
+          unzip -q cmdline-tools.zip
+          mv cmdline-tools/* cmdline-tools/latest/ || true
+
+          yes | cmdline-tools/latest/bin/sdkmanager \
+            --sdk_root=$PWD \
+            "build-tools;${{ matrix.build_tools }}"
+
+          mkdir ../package
+          cp -a build-tools ../package/
+
+      - name: Push branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          mkdir repo
+          cp -a package/. repo/
+
+          cd repo
+          git init
+          git checkout -b "${{ matrix.branch }}"
+
+          git add .
+          git commit -m "Upload ${{ matrix.branch }}"
+
+          git remote add origin \
+            https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+
+          git push -f origin "${{ matrix.branch }}"
