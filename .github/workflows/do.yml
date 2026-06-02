@@ -1,4 +1,4 @@
-name: Upload Android SDK & NDK
+name: Upload Android NDK
 
 on:
   workflow_dispatch:
@@ -15,75 +15,57 @@ jobs:
       matrix:
         include:
           - branch: ndk-r27d
-            type: ndk
             url: https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
 
           - branch: ndk-r29
-            type: ndk
             url: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
 
-          - branch: sdk-24.0.4
-            type: sdk
-            build_tools: "24.0.4"
-
-          - branch: sdk-35.0.2
-            type: sdk
-            build_tools: "35.0.2"
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip wget git
+          sudo apt-get install -y wget unzip git git-lfs
 
       - name: Download NDK
-        if: matrix.type == 'ndk'
         run: |
-          mkdir package
-          wget -O package/archive.zip "${{ matrix.url }}"
-          cd package
-          unzip -q archive.zip
-          rm archive.zip
+          wget -q -O ndk.zip "${{ matrix.url }}"
+          unzip -q ndk.zip
+          rm -f ndk.zip
 
-      - name: Download SDK Build Tools
-        if: matrix.type == 'sdk'
+      - name: Initialize Repository
         run: |
-          mkdir sdk
-          cd sdk
-
-          wget -O cmdline-tools.zip \
-            https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
-
-          mkdir -p cmdline-tools/latest
-          unzip -q cmdline-tools.zip
-          mv cmdline-tools/* cmdline-tools/latest/ || true
-
-          yes | cmdline-tools/latest/bin/sdkmanager \
-            --sdk_root=$PWD \
-            "build-tools;${{ matrix.build_tools }}"
-
-          mkdir ../package
-          cp -a build-tools ../package/
-
-      - name: Push branch
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
           mkdir repo
-          cp -a package/. repo/
+          shopt -s dotglob
+          mv android-ndk-* repo/
 
+      - name: Configure Git & LFS
+        run: |
           cd repo
+
           git init
           git checkout -b "${{ matrix.branch }}"
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git lfs install
+
+          # Track all NDK files through LFS
+          git lfs track "**"
+
+          git add .gitattributes
           git add .
+
           git commit -m "Upload ${{ matrix.branch }}"
+
+      - name: Push Branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
 
           git remote add origin \
             https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
